@@ -27,29 +27,32 @@ for (set in unique(df$Set)) {
     # Remove rows with missing values in TSC (total seed count)
     set_df <- set_df[!is.na(set_df$TSC),]
 
+    # Set WT as the reference level
+    set_df$Genotype <- factor(set_df$Genotype, levels=c('WT', 'MA', 'MB', 'DM'))
+
     # For sets grown on multiple flats, include flat as random effect
     if (length(unique(set_df$Flat)) > 1) {
         # Fit a linear model
-        model <- lme4::lmer(TSC ~ Subline + (1|Column) + (1|Row) + (1|Flat), data = set_df)
+        model <- lme4::lmer(TSC ~ Genotype + (1|Column) + (1|Row) + (1|Flat), data = set_df)
 
         # Save the model
         saveRDS(model, paste0('../output/0_raw_data_correction/Set_', set, '_brianna_model.rds'))
 
         # Calculate estimated means
-        emm <- as.data.frame(emmeans(model, ~ Subline))
-        out <- dplyr::left_join(set_df, emm, by='Subline')
+        emm <- as.data.frame(emmeans(model, ~ Genotype))
+        out <- dplyr::left_join(set_df, emm, by='Genotype')
         res <- rbind(res, out)
         }
     if (length(unique(set_df$Flat)) == 1) {
         # Fit a linear model
-        model <- lme4::lmer(TSC ~ Subline + (1|Column) + (1|Row), data = set_df)
+        model <- lme4::lmer(TSC ~ Genotype + (1|Column) + (1|Row), data = set_df)
 
         # Save the model
         saveRDS(model, paste0('../output/0_raw_data_correction/Set_', set, '_brianna_model.rds'))
 
         # Calculate estimated means
-        emm <- as.data.frame(emmeans(model, ~ Subline))
-        out <- dplyr::left_join(set_df, emm, by='Subline')
+        emm <- as.data.frame(emmeans(model, ~ Genotype))
+        out <- dplyr::left_join(set_df, emm, by='Genotype')
         res <- rbind(res, out)
     }
 }

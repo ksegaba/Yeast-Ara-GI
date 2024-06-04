@@ -2,7 +2,7 @@
 #SBATCH --time=01:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=2G
-#SBATCH --job-name=0_raw_data_correction_emmeans
+#SBATCH --job-name=0_raw_data_correction_linear
 #SBATCH --output=../logs/%x-%j.out
 
 system('module purge; module load GCC/11.2.0  OpenMPI/4.1.1  R/4.3.1')
@@ -35,32 +35,38 @@ for (set in unique(df$Set)) {
         for (flat in unique(set_df$Flat)){
             flat_df <- set_df[set_df$Flat == flat,] # flat data
 
+            # Set WT as the reference level
+            flat_df$Genotype <- factor(flat_df$Genotype, levels=c('WT', 'MA', 'MB', 'DM'))
+
             # Fit a linear model
-            model <- lme4::lmer(TSC ~ Subline + (1|Column) + (1|Row), data = flat_df)
+            model <- lme4::lmer(TSC ~ Genotype + (1|Column) + (1|Row), data = flat_df)
             
             # Calculate estimated means
-            emm <- as.data.frame(emmeans(model, ~ Subline))
+            emm <- as.data.frame(emmeans(model, ~ Genotype))
 
             # Save the model
             saveRDS(model, paste0('../output/0_raw_data_correction/Set_', set, '_flat_', flat, '_linear_model.rds'))
 
             # Collect fitted values
-            out <- dplyr::left_join(flat_df, emm, by='Subline')
+            out <- dplyr::left_join(flat_df, emm, by='Genotype')
             res <- rbind(res, out)
         }
     } 
     if (length(unique(set_df$Flat)) == 1) {
+        # Set WT as the reference level
+        set_df$Genotype <- factor(set_df$Genotype, levels=c('WT', 'MA', 'MB', 'DM'))
+        
         # Fit a linear model
-        model <- lme4::lmer(TSC ~ Subline + (1|Column) + (1|Row), data = set_df)
+        model <- lme4::lmer(TSC ~ Genotype + (1|Column) + (1|Row), data = set_df)
         
         # Calculate estimated means
-        emm <- as.data.frame(emmeans(model, ~ Subline))
+        emm <- as.data.frame(emmeans(model, ~ Genotype))
 
         # Save the model
         saveRDS(model, paste0('../output/0_raw_data_correction/Set_', set, '_linear_model.rds'))
 
         # Collect fitted values
-        out <- dplyr::left_join(set_df, emm, by='Subline')
+        out <- dplyr::left_join(set_df, emm, by='Genotype')
         res <- rbind(res, out)
     }
 }

@@ -32,10 +32,10 @@ for (set in unique(df$Set)) {
         for (flat in unique(set_df$Flat)){
             flat_df <- set_df[set_df$Flat == flat,] # flat data
 
-            # Transform fixed and random variables
+            # Transform fixed and random variables/ set WT as reference level
             flat_df$R <- factor(flat_df$Row)
             flat_df$C <- factor(flat_df$Column)
-            flat_df$geno <- factor(flat_df$Subline)
+            flat_df$geno <- factor(flat_df$Genotype, levels=c('WT', 'MA', 'MB', 'DM'))
 
             # Fit spatial model
             fit.TSC <- SpATS(response = 'TSC',
@@ -61,9 +61,10 @@ for (set in unique(df$Set)) {
         }
     }
     if (length(unique(set_df$Flat)) == 1) {
+        # Set WT as the reference level
         set_df$R <- factor(set_df$Row)
         set_df$C <- factor(set_df$Column)
-        set_df$geno <- factor(set_df$Subline)
+        set_df$geno <- factor(set_df$Genotype, levels=c('WT', 'MA', 'MB', 'DM'))
 
         fit.TSC <- SpATS(response = 'TSC', 
             spatial = ~ SAP (Column, Row, nseg = c(length(levels(set_df$C)), length(levels(set_df$R)))),
