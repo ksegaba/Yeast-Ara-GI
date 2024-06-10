@@ -1,5 +1,5 @@
 """
-XGBoost Regression
+Gradient Boosting Regression
 
 # Required Inputs
     -X      Path to feature matrix file
@@ -18,14 +18,14 @@ XGBoost Regression
 
 # Outputs for each training repetition (prefixed with <prefix>_)
     _lm_test_rep_*.pdf        Regression plot of predicted and actual test labels
-    _model_rep_*.save         XGBoost model
+    _model_rep_*.save         Gradient boosting model
     _top20_rep_*.pdf          Plot of top 20 features' importance scores
 
 # Summary outputs (prefixed with <prefix>_)
     _imp.csv                  Feature importance scores
     _cv_results.csv           Cross-validation results (various metrics)
     _test_results.csv         Evaluation results (various metrics)
-    RESULTS_xgboost.txt       Aggregated results (various metrics)
+    RESULTS_gradboost.txt       Aggregated results (various metrics)
 """
 __author__ = "Kenia Segura Abá"
 
@@ -37,12 +37,12 @@ import pickle
 import datatable as dt
 import pandas as pd
 import numpy as np
-import xgboost as xgb
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime
 from hyperopt import hp, fmin, tpe, Trials
 from hyperopt.pyll.base import scope
+from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error, r2_score, explained_variance_score
 from sklearn.model_selection import KFold, cross_validate
 from sklearn.model_selection import cross_val_predict
@@ -54,17 +54,12 @@ def hyperopt_objective(params):
     with K-fold cross-validation
     Written by Thejesh Mallidi
     """
-    reg = xgb.XGBRegressor(
+    reg = GradientBoostingRegressor(loss=params["loss"],
         learning_rate=params["learning_rate"],
-        max_depth=int(params["max_depth"]),
-        subsample=params["subsample"],
-        colsample_bytree=params["colsample_bytree"],
-        gamma=params["gamma"],
-        # alpha=params["alpha"],
-        min_child_weight=params["min_child_weight"],
         n_estimators=int(params["n_estimators"]),
-        objective=params["objective"],
-        eval_metric=params["eval_metric"],
+        criterion=params["criterion"],
+        max_depth=params["max_depth"],
+        max_features=params["max_features"],
         random_state=42
     )
 
@@ -99,11 +94,11 @@ def param_hyperopt(param_grid, max_evals=100):
     return params_best, trials
 
 
-def xgb_reg(trait, fold, n, prefix, plot):
+def gb_reg(trait, fold, n, prefix, plot):
     global X_train
     global y_train
 
-    """ Train XGBoost Regression Model """
+    """ Train Gradient Boosting Regression Model """
     print(trait)
 
     # Train-test split
@@ -117,15 +112,12 @@ def xgb_reg(trait, fold, n, prefix, plot):
     X_test = X_test.loc[y_test.index,:]
 
     # Hyperparameter tuning
-    parameters = {"learning_rate":hp.uniform("learning_rate", 0.01, 0.5), # learning rate
-                "max_depth":scope.int(hp.quniform("max_depth", 3, 10, 1)), # tree depth
-                "subsample": hp.uniform("subsample", 0.5, 1.0), # instances per tree
-                "colsample_bytree": hp.uniform("colsample_bytree", 0.0, 1.0), # features per tree
-                "gamma": hp.uniform("gamma", 0.0, 1.0), # min_split_loss
-                # "alpha": hp.uniform("alpha", 0.0, 5.0), # L1 regularization
-                "min_child_weight": scope.int(hp.quniform("min_child_weight", 1, 1000, 2)), # minimum sum of instance weight needed in a child
-                "n_estimators": scope.int(hp.quniform("n_estimators", 5, 300, 2)),
-                "objective": "reg:squarederror", "eval_metric": "rmse"}
+    parameters = {"loss": "absolute_error", # loss function to be optimized
+                "learning_rate": hp.uniform("learning_rate", 0.01, 0.5), # learning rate
+                "n_estimators": scope.int(hp.quniform("n_estimators", 50, 500, 2),), # number of trees
+                "criterion": "friedman_mse", # quality of split
+                "max_depth": scope.int(hp.quniform("max_depth", 3, 15, 1)), # tree depth
+                "max_features": hp.uniform("max_features", 0.0, 1.0)} # features to consider for split
     
     start = time.time()
     best_params, trials = param_hyperopt(parameters, 100)
@@ -144,17 +136,13 @@ def xgb_reg(trait, fold, n, prefix, plot):
     for j in range(0, n): # repeat cv 10 times
         print(f"Running {j+1} of {n}")
         # Build model using the best parameters
-        best_model = xgb.XGBRegressor(
-            eta=best_params["learning_rate"],
-            max_depth=int(best_params["max_depth"]),
-            subsample=best_params["subsample"],
-            colsample_bytree=best_params["colsample_bytree"],
-            gamma=best_params["gamma"],
-            # alpha=best_params["alpha"],
-            min_child_weight=int(best_params["min_child_weight"]),
+        best_model = GradientBoostingRegressor(
+            loss="absolute_error",
+            learning_rate=best_params["learning_rate"],
             n_estimators=int(best_params["n_estimators"]),
-            objective="reg:squarederror",
-            eval_metric="rmse",
+            criterion="friedman_mse",
+            max_depth=int(best_params["max_depth"]),
+            max_features=best_params["max_features"],
             random_state=j)
         
         cv_pred = cross_val_predict(
@@ -197,7 +185,8 @@ def xgb_reg(trait, fold, n, prefix, plot):
         # Save feature importance scores to file
         feature_imp = pd.concat([feature_imp, pd.Series(best_model.feature_importances_,
             index=best_model.feature_names_in_, name=f"rep_{j}")],
-            ignore_index=False, axis=1) 
+            ignore_index=False, axis=1)
+        print(feature_imp.head())
 
         # Save predicted labels to file
         preds[f"rep_{j}"] = pd.concat([pd.Series(cv_pred, index=X_train.index),
@@ -205,22 +194,11 @@ def xgb_reg(trait, fold, n, prefix, plot):
 
         if plot=="t":
             # Plot linear regression of actual and predicted test values
-            plt.figure(figsize=(3,3))
-            plt.axline([0, 0], [1, 1], color="black", linestyle="--")
-            plt.scatter(x=y_pred, y=y_test, color="blue", alpha=0.7, marker=".")
-            plt.xlim(np.min(y_pred)-.1, np.max(y_pred)+.1) ; plt.ylim(np.min(y_pred)-.1, np.max(y_pred)+.1)
-            plt.xlabel("Predicted") ; plt.ylabel("Actual")
+            sns.regplot(x=y_pred, y=y_test, fit_reg=True, ci=95, seed=123, color="black")
+            plt.xlabel("Predicted")
+            plt.ylabel("Actual")
             plt.title(f"{trait}")
-            plt.axis("square") ; plt.tight_layout()
             plt.savefig(f"{args.save}/{prefix}_lm_test_rep_{j}.pdf", format="pdf")
-            plt.close()
-            
-            # Plot feature importances
-            xgb.plot_importance(
-                best_model, grid=False, max_num_features=20, 
-                title=f"{trait} Feature Importances", xlabel="Weight")
-            plt.tight_layout()
-            plt.savefig(f"{args.save}/{prefix}_top20_rep_{j}.pdf", format="pdf")
             plt.close()
 
     # Write feature importances across reps to file
@@ -235,7 +213,7 @@ def xgb_reg(trait, fold, n, prefix, plot):
 if __name__ == "__main__":
     # Argument parser
     parser = argparse.ArgumentParser(
-        description="XGBoost Regression on SNP and ORF data")
+        description="Gradient Boosting Regression on SNP and ORF data")
     
     # Required input
     req_group = parser.add_argument_group(title="Required Input")
@@ -294,7 +272,7 @@ if __name__ == "__main__":
 
     # Train the model
     start = time.time()
-    results_cv, results_test = xgb_reg(
+    results_cv, results_test = gb_reg(
         args.y_name, int(args.fold), int(args.n), args.prefix, args.plot)
     run_time = time.time() - start
     print("Training Run Time: %f" % (run_time))
@@ -308,8 +286,8 @@ if __name__ == "__main__":
         columns=["MSE_test", "RMSE_test", "EVS_test", "R2_test", "PCC_test"])
 
     # Aggregate results and save to file
-    if not os.path.isfile(f"{args.save}/RESULTS_xgboost.txt"):
-        out = open(f"{args.save}/RESULTS_xgboost.txt", "a")
+    if not os.path.isfile(f"{args.save}/RESULTS_gradboost.txt"):
+        out = open(f"{args.save}/RESULTS_gradboost.txt", "a")
         out.write("Date\tRunTime\tTag\tY\tNumInstances\tNumFeatures\
             \tCV_fold\tCV_rep\tMSE_val\tMSE_val_sd\
             \tRMSE_val\tRMSE_val_sd\tEVS_val\tEVS_val_sd\tR2_val\
@@ -318,7 +296,7 @@ if __name__ == "__main__":
             \tR2_test_sd\tPCC_test\tPCC_test_sd")
         out.close()
 
-    out = open(f"{args.save}/RESULTS_xgboost.txt", "a")
+    out = open(f"{args.save}/RESULTS_gradboost.txt", "a")
     out.write(f"\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\t\
         {run_time}\t{args.tag}\t{args.y_name}\t{X.shape[0]-len(test)}\t\
         {X.shape[1]}\t{int(args.fold)}\t{int(args.n)}\t\
