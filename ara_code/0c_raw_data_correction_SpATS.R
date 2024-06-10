@@ -15,7 +15,7 @@ system('module purge; module load GCC/9.3.0  OpenMPI/4.0.3  R/4.0.3')
 library(SpATS)
 
 # Load the data
-df <- read.csv('../data/double_mutant_fitness_data_05312024.txt', sep='\t', header=T)
+df <- read.csv('../ara_data/double_mutant_fitness_data_05312024.txt', sep='\t', header=T)
 
 # Collect fitted values for TSC
 res <- data.frame()
@@ -87,4 +87,4 @@ for (set in unique(df$Set)) {
 }
 
 # Save the corrected data
-write.csv(res, '../data/double_mutant_fitness_data_05312024_TSC_corrected_SpATS.txt', row.names=F, quote=F)
+write.csv(res, '../ara_data/double_mutant_fitness_data_05312024_TSC_corrected_SpATS.txt', row.names=F, quote=F)
