@@ -1,3 +1,7 @@
 # Directories to ignore
 output/
 logs/
+
+# Files to ignore
+ara_data/brianna_comparemean_tolmer_df_withrelative.csv
+ara_data/W_*
