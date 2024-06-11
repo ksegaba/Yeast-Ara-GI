@@ -124,7 +124,7 @@ def xgb_reg(trait, fold, n, prefix, plot):
                 "gamma": hp.uniform("gamma", 0.0, 1.0), # min_split_loss
                 # "alpha": hp.uniform("alpha", 0.0, 5.0), # L1 regularization
                 "min_child_weight": scope.int(hp.quniform("min_child_weight", 1, 1000, 2)), # minimum sum of instance weight needed in a child
-                "n_estimators": scope.int(hp.quniform("n_estimators", 5, 300, 2)),
+                "n_estimators": scope.int(hp.quniform("n_estimators", 5, 500, 2)),
                 "objective": "reg:squarederror", "eval_metric": "rmse"}
     
     start = time.time()
