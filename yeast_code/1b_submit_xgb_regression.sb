@@ -14,7 +14,7 @@ conda activate /mnt/home/seguraab/miniconda3/envs/shap
 python ara_code/1b_xgb_regression.py \
     -X yeast_data/DMF_feature_table.txt \
     -y_name DMF \
-    -test DMF_test_instances.txt \
+    -test yeast_data/DMF_test_instances.txt \
     -save output/1_xgb_regression_yeast/ \
     -prefix DMF \
     -tag use_SMF_and_Neutrality_Funcs \
