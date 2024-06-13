@@ -53,6 +53,7 @@ def hyperopt_objective(params):
     Create the hyperparameter grid and run Hyperopt hyperparameter tuning
     with K-fold cross-validation
     Written by Thejesh Mallidi
+    Modified by Kenia Segura Abá
     """
     reg = xgb.XGBRegressor(
         learning_rate=params["learning_rate"],
