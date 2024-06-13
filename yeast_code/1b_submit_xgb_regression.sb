@@ -19,3 +19,7 @@ python ara_code/1b_xgb_regression.py \
     -prefix DMF \
     -tag use_SMF_and_Neutrality_Funcs \
     -fold 10 -n 10 -plot t
+
+conda deactivate
+
+scontrol show job $SLURM_JOB_ID
