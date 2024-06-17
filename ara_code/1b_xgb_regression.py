@@ -263,6 +263,9 @@ if __name__ == "__main__":
     req_group.add_argument(
         "-feat", help="file containing features (from X) to include in model", default="all")
     req_group.add_argument(
+        "-feat_list", help="comma-separated list of features (from X) to include in model", 
+        nargs="+", type=lambda s: [col.strip() for col in s.split(",")], default=[])
+    req_group.add_argument(
         "-plot", help="plot feature importances and predictions (t/f)", default="t")
     
     # Help
@@ -272,25 +275,30 @@ if __name__ == "__main__":
     args = parser.parse_args() # Read arguments
 
     # Read in data
-    X = dt.fread(args.X)
+    X = dt.fread(args.X) # feature table
     X = X.to_pandas()
     X.set_index(X.columns[0], inplace=True)
 
-    if args.Y == "":
+    if args.Y == "": # get the label from X or Y files
         y = X.loc[:, args.y_name]
         X.drop(columns=args.y_name, inplace=True)
     else:
         Y = args.Y
         y = Y.loc[:, args.y_name]
     
-    test = pd.read_csv(args.test, header=None)
+    test = pd.read_csv(args.test, header=None) # test instances
 
-    # Filter out features not in feat file given - default: keep all
+    # Filter out features not in the given feat file - default: keep all
     if args.feat != "all":
         print("Using subset of features from: %s" % args.feat)
         with open(args.feat) as f:
             features = f.read().strip().splitlines()
         X = X.loc[:,features]
+        print(f"New dimensions: {X.shape}")
+    
+    if len(args.feat_list) > 0:
+        print("Using subset of features from list", args.feat_list[0])
+        X = X.loc[:,args.feat_list[0]]
         print(f"New dimensions: {X.shape}")
 
     # Train the model
