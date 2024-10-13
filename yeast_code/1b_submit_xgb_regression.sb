@@ -10,7 +10,25 @@ nohup python ara_code/1b_xgb_regression.py \
     -save output/1_xgb_regression_yeast/ \
     -prefix DMF_all_neut_funcs \
     -tag use_all_neut_funcs \
-    -fold 10 -n 10 -plot t > logs/1_xgb_regression_yeast_all_neut_funcs.out &
+    -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_all_neut_funcs.out &
+
+# Save the process PID
+echo $! > logs/1b_xgb_regression_yeast_all_neut_funcs_pid.txt
+
+# Only the four established neutrality functions
+nohup python ara_code/1b_xgb_regression.py \
+    -X yeast_data/DMF_feature_table.txt \
+    -y_name DMF \
+    -feat_list Array_SMF_new multiplicative additive log_mani \
+    -test yeast_data/DMF_test_instances.txt \
+    -save output/1_xgb_regression_yeast/ \
+    -prefix DMF_established_neut_funcs \
+    -tag use_established_neut_funcs \
+    -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_established_neut_funcs.out &
+
+# Save the process PID
+echo $! > logs/1b_xgb_regression_yeast_established_neut_funcs_pid.txt
+
 
 # Individual neutrality functions
 neut_funcs=(Query_SMF_new Array_SMF_new multiplicative additive difference log_mani log_additive log_difference mean)
@@ -23,7 +41,9 @@ for neut_func in ${neut_funcs[@]}; do
         -save output/1_xgb_regression_yeast/ \
         -prefix DMF_${neut_func} \
         -tag use_SMF_and_${neut_func} \
-        -fold 10 -n 10 -plot t > logs/1_xgb_regression_yeast_${neut_func}.out &
+        -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_${neut_func}.out &
+
+    echo $! > logs/1b_xgb_regression_yeast_${neut_func}_pid.txt
 done
 
 conda deactivate
