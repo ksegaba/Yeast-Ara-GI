@@ -1,44 +1,96 @@
 #!/bin/bash
 
 conda activate shap
+cd /home/seguraab/Yeast-Ara-GI
 
+################# Using the stratified k-fold train-test split #################
 # All neutrality functions together
 nohup python ara_code/1b_xgb_regression.py \
-    -X yeast_data/DMF_feature_table.txt \
+    -X yeast_data/DMF_feature_table_v20241015.tsv \
     -y_name DMF \
-    -test yeast_data/DMF_test_instances.txt \
-    -save output/1_xgb_regression_yeast/ \
+    -test yeast_data/DMF_test_instances_v20241015.txt \
+    -save output/1_xgb_regression_yeast/20241015_results \
     -prefix DMF_all_neut_funcs \
     -tag use_all_neut_funcs \
-    -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_all_neut_funcs.out &
+    -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_all_neut_funcs_v20241015.out &
 
 # Save the process PID
 echo $! > logs/1b_xgb_regression_yeast_all_neut_funcs_pid.txt
 
+
 # Only the four established neutrality functions
 nohup python ara_code/1b_xgb_regression.py \
-    -X yeast_data/DMF_feature_table.txt \
+    -X yeast_data/DMF_feature_table_v20241015.tsv \
     -y_name DMF \
-    -feat_list Array_SMF_new multiplicative additive log_mani \
-    -test yeast_data/DMF_test_instances.txt \
-    -save output/1_xgb_regression_yeast/ \
+    -feat_list Array_SMF_new,multiplicative,additive,log2_mani \
+    -test yeast_data/DMF_test_instances_v20241015.txt \
+    -save output/1_xgb_regression_yeast/20241015_results \
     -prefix DMF_established_neut_funcs \
     -tag use_established_neut_funcs \
-    -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_established_neut_funcs.out &
+    -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_established_neut_funcs_v20241015.out &
 
 # Save the process PID
 echo $! > logs/1b_xgb_regression_yeast_established_neut_funcs_pid.txt
 
 
-# Individual neutrality functions
-neut_funcs=(Query_SMF_new Array_SMF_new multiplicative additive difference log_mani log_additive log_difference mean)
+################ Using the random, but perfect, train-test split ###############
+# All neutrality functions together
+nohup python ara_code/1b_xgb_regression.py \
+    -X yeast_data/DMF_feature_table_v20241015.tsv \
+    -y_name DMF \
+    -test yeast_data/DMF_test_instances_v20241016.txt \
+    -save output/1_xgb_regression_yeast/20241016_results \
+    -prefix DMF_all_neut_funcs \
+    -tag use_all_neut_funcs \
+    -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_all_neut_funcs_v20241016.out &
+
+# Save the process PID
+echo $! > logs/1b_xgb_regression_yeast_all_neut_funcs_pid.txt
+
+
+# Only the four established neutrality functions
+nohup python ara_code/1b_xgb_regression.py \
+    -X yeast_data/DMF_feature_table_v20241015.tsv \
+    -y_name DMF \
+    -feat_list Array_SMF_new,multiplicative,additive,log2_mani \
+    -test yeast_data/DMF_test_instances_v20241016.txt \
+    -save output/1_xgb_regression_yeast/20241016_results \
+    -prefix DMF_established_neut_funcs \
+    -tag use_established_neut_funcs \
+    -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_established_neut_funcs_v20241015.out &
+
+# Save the process PID
+echo $! > logs/1b_xgb_regression_yeast_established_neut_funcs_pid.txt
+
+
+# Only the single mutant fitness features
+nohup python ara_code/1b_xgb_regression.py \
+    -X yeast_data/DMF_feature_table_v20241015.tsv \
+    -y_name DMF \
+    -feat_list Query_SMF_new,Array_SMF_new \
+    -test yeast_data/DMF_test_instances_v20241016.txt \
+    -save output/1_xgb_regression_yeast/20241016_results \
+    -prefix DMF_from_SMF_only \
+    -tag use_SMF_only \
+    -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_SMF_only_v20241015.out &
+
+# Save the process PID
+echo $! > logs/1b_xgb_regression_yeast_SMF_only_pid.txt
+
+
+
+
+
+
+# Individual neutrality functions (10/15/2024: I have not run this yet, don't think I need it.)
+neut_funcs=(Query_SMF_new Array_SMF_new multiplicative additive difference log2_mani pslog10_additive pslog10_difference mean)
 for neut_func in ${neut_funcs[@]}; do
     nohup python ara_code/1b_xgb_regression.py \
         -X yeast_data/DMF_feature_table.txt \
         -y_name DMF \
         -feat_list ${neut_func} \
         -test yeast_data/DMF_test_instances.txt \
-        -save output/1_xgb_regression_yeast/ \
+        -save output/1_xgb_regression_yeast \ #/20241015_results \
         -prefix DMF_${neut_func} \
         -tag use_SMF_and_${neut_func} \
         -fold 10 -n 10 -plot t > logs/1b_xgb_regression_yeast_${neut_func}.out &
