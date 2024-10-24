@@ -317,7 +317,8 @@ if __name__ == "__main__":
         y = X.loc[:, args.y_name]
         X.drop(columns=args.y_name, inplace=True)
     else:
-        Y = args.Y
+        Y = dt.fread(args.Y).to_pandas()
+        Y.set_index(Y.columns[0], inplace=True)
         y = Y.loc[:, args.y_name]
     
     test = pd.read_csv(args.test, header=None) # test instances
