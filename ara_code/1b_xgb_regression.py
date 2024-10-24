@@ -44,11 +44,12 @@ from datetime import datetime
 from hyperopt import hp, fmin, tpe, Trials
 from hyperopt.pyll.base import scope
 from sklearn.metrics import mean_squared_error, r2_score, explained_variance_score
-from sklearn.model_selection import KFold, cross_validate
+from sklearn.model_selection import KFold, cross_validate, StratifiedKFold
 from sklearn.model_selection import cross_val_predict
+from sklearn.preprocessing import KBinsDiscretizer
 
 
-def hyperopt_objective(params):
+def hyperopt_objective(params, X_train, y_train):
     """
     Create the hyperparameter grid and run Hyperopt hyperparameter tuning
     with K-fold cross-validation
@@ -61,7 +62,7 @@ def hyperopt_objective(params):
         subsample=params["subsample"],
         colsample_bytree=params["colsample_bytree"],
         gamma=params["gamma"],
-        # alpha=params["alpha"],
+        alpha=params["alpha"], # I excluded alpha when I ran the 20240531 dataset models
         min_child_weight=params["min_child_weight"],
         n_estimators=int(params["n_estimators"]),
         objective=params["objective"],
@@ -69,27 +70,43 @@ def hyperopt_objective(params):
         random_state=42
     )
 
-    cv = KFold(n_splits=5, shuffle=True, random_state=42)
-    validation_loss = cross_validate(
-        reg, X_train, y_train,
-        scoring="r2",
-        cv=cv,
-        n_jobs=-1,
-        error_score="raise"
-    )
+    # I ran regular KFold cross-validation with the 20240531 dataset
+    # cv = KFold(n_splits=5, shuffle=True, random_state=42)
+    # validation_loss = cross_validate(
+    #     reg, X_train, y_train,
+    #     scoring="r2",
+    #     cv=cv,
+    #     n_jobs=-1,
+    #     error_score="raise"
+    # )
+    
+    # Bin y_train for stratified K-fold sampling
+    discretizer = KBinsDiscretizer(n_bins=10, encode="ordinal", strategy="quantile")
+    y_train_binned = discretizer.fit_transform(y_train.values.reshape(-1, 1)).astype(int).flatten()
+    y_train_binned = pd.Series(y_train_binned, index=y_train.index)
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    validation_loss = []
+    for i, (train_idx, val_idx) in enumerate(cv.split(X_train, y_train_binned)):
+        X_train_cv, X_val_cv = X_train.iloc[train_idx], X_train.iloc[val_idx]
+        y_train_cv, y_val_cv = y_train.iloc[train_idx], y_train.iloc[val_idx]
+
+        reg.fit(X_train_cv, y_train_cv)
+        cv_pred = reg.predict(X_val_cv)
+        validation_loss.append(r2_score(y_val_cv, cv_pred))
 
     # Note: Hyperopt minimizes the objective, so to maximize R^2, return the negative mean
-    return -np.mean(validation_loss["test_score"])
+    return -np.mean(validation_loss)
 
 
-def param_hyperopt(param_grid, max_evals=100):
+def param_hyperopt(param_grid, X_train, y_train, max_evals=100):
     """
     Obtain the best parameters from Hyperopt
     Written by Thejesh Mallidi
     """
     trials = Trials()
     params_best = fmin(
-        fn=hyperopt_objective,
+        fn=lambda params: hyperopt_objective(params, X_train, y_train),
         space=param_grid,
         algo=tpe.suggest,
         max_evals=max_evals,
@@ -100,10 +117,7 @@ def param_hyperopt(param_grid, max_evals=100):
     return params_best, trials
 
 
-def xgb_reg(trait, fold, n, prefix, plot):
-    global X_train
-    global y_train
-
+def xgb_reg(trait, X, y, fold, n, prefix, plot):
     """ Train XGBoost Regression Model """
     print(trait)
 
@@ -118,18 +132,18 @@ def xgb_reg(trait, fold, n, prefix, plot):
     X_test = X_test.loc[y_test.index,:]
 
     # Hyperparameter tuning
-    parameters = {"learning_rate":hp.uniform("learning_rate", 0.01, 0.5), # learning rate
-                "max_depth":scope.int(hp.quniform("max_depth", 3, 10, 1)), # tree depth
+    parameters = {"learning_rate":hp.uniform("learning_rate", 0.01, 0.4), # learning rate
+                "max_depth":scope.int(hp.quniform("max_depth", 2, 10, 1)), # tree depth
                 "subsample": hp.uniform("subsample", 0.5, 1.0), # instances per tree
-                "colsample_bytree": hp.uniform("colsample_bytree", 0.0, 1.0), # features per tree
-                "gamma": hp.uniform("gamma", 0.0, 1.0), # min_split_loss
-                # "alpha": hp.uniform("alpha", 0.0, 5.0), # L1 regularization
-                "min_child_weight": scope.int(hp.quniform("min_child_weight", 1, 1000, 2)), # minimum sum of instance weight needed in a child
-                "n_estimators": scope.int(hp.quniform("n_estimators", 5, 500, 2)),
+                "colsample_bytree": hp.uniform("colsample_bytree", 0.7, 1.0), # features per tree
+                "gamma": hp.uniform("gamma", 0.1, 5.0), # min_split_loss
+                "alpha": hp.uniform("alpha", 0.1, 5.0), # L1 regularization
+                "min_child_weight": scope.int(hp.quniform("min_child_weight", 5, 20, 2)), # minimum sum of instance weight needed in a child
+                "n_estimators": scope.int(hp.quniform("n_estimators", 5, 500, 5)),
                 "objective": "reg:squarederror", "eval_metric": "rmse"}
     
     start = time.time()
-    best_params, trials = param_hyperopt(parameters, 100)
+    best_params, trials = param_hyperopt(parameters, X_train, y_train, 100)
     run_time = time.time() - start
     print("Total hyperparameter tuning time:", run_time)
     print("Best parameters: ", best_params)
@@ -139,8 +153,8 @@ def xgb_reg(trait, fold, n, prefix, plot):
     results_cv = [] # hold performance metrics of cv reps
     results_test = [] # hold performance metrics on test set
     feature_imp = pd.DataFrame(index=X_train.columns)
-    preds = {}
-
+    Y_preds = pd.DataFrame(y.copy(deep=True))
+    
     # Training with Cross-validation
     for j in range(0, n): # repeat cv 10 times
         print(f"Running {j+1} of {n}")
@@ -151,22 +165,39 @@ def xgb_reg(trait, fold, n, prefix, plot):
             subsample=best_params["subsample"],
             colsample_bytree=best_params["colsample_bytree"],
             gamma=best_params["gamma"],
-            # alpha=best_params["alpha"],
+            alpha=best_params["alpha"],
             min_child_weight=int(best_params["min_child_weight"]),
             n_estimators=int(best_params["n_estimators"]),
             objective="reg:squarederror",
             eval_metric="rmse",
             random_state=j)
         
-        cv_pred = cross_val_predict(
-            best_model, X_train, y_train, cv=fold, n_jobs=-1) # predictions
+        # cv_pred = cross_val_predict(
+        #     best_model, X_train, y_train, cv=fold, n_jobs=-1) # predictions
+
+        # Bin y_train for stratified K-fold sampling
+        discretizer = KBinsDiscretizer(n_bins=10, encode="ordinal", strategy="quantile")
+        y_train_binned = discretizer.fit_transform(y_train.values.reshape(-1, 1)).astype(int).flatten()
+        y_train_binned = pd.Series(y_train_binned, index=y_train.index)
+
+        cv = StratifiedKFold(n_splits=fold, shuffle=True, random_state=42)
+        Y_preds[f"cv_preds_{j}"] = np.nan
+        cv_pred = []
+        for i, (train_idx, val_idx) in enumerate(cv.split(X_train, y_train_binned)):
+            X_train_cv, X_val_cv = X_train.iloc[train_idx], X_train.iloc[val_idx]
+            y_train_cv, y_val_cv = y_train.iloc[train_idx], y_train.iloc[val_idx]
+
+            best_model.fit(X_train_cv, y_train_cv)
+            cv_preds = best_model.predict(X_val_cv)
+            Y_preds.loc[y_train.index[val_idx], f"cv_preds_{j}"] = cv_preds
+            cv_pred.append(r2_score(y_val_cv, cv_preds))
 
         # Performance statistics on validation set
-        mse_val = mean_squared_error(y_train, cv_pred)
-        rmse_val = np.sqrt(mean_squared_error(y_train, cv_pred))
-        evs_val = explained_variance_score(y_train, cv_pred)
-        r2_val = r2_score(y_train, cv_pred)
-        cor_val = np.corrcoef(np.array(y_train), cv_pred)
+        mse_val = mean_squared_error(y_train, Y_preds.loc[y_train.index, f"cv_preds_{j}"])
+        rmse_val = np.sqrt(mean_squared_error(y_train, Y_preds.loc[y_train.index, f"cv_preds_{j}"]))
+        evs_val = explained_variance_score(y_train, Y_preds.loc[y_train.index, f"cv_preds_{j}"])
+        r2_val = r2_score(y_train, Y_preds.loc[y_train.index, f"cv_preds_{j}"])
+        cor_val = np.corrcoef(np.array(y_train), Y_preds.loc[y_train.index, f"cv_preds_{j}"])
         print("Val MSE: %f" % (mse_val))
         print("Val RMSE: %f" % (rmse_val))
         print("Val R-sq: %f" % (r2_val))
@@ -177,7 +208,9 @@ def xgb_reg(trait, fold, n, prefix, plot):
         # Evaluate the model on the test set
         best_model.fit(X_train, y_train)
         y_pred = best_model.predict(X_test)
-
+        Y_preds[f"test_preds_{j}"] = np.nan
+        Y_preds.loc[y_test.index, f"test_preds_{j}"] = y_pred
+        
         # Performance on the test set
         mse = mean_squared_error(y_test, y_pred)
         rmse = np.sqrt(mean_squared_error(y_test, y_pred))
@@ -201,8 +234,8 @@ def xgb_reg(trait, fold, n, prefix, plot):
             ignore_index=False, axis=1) 
 
         # Save predicted labels to file
-        preds[f"rep_{j}"] = pd.concat([pd.Series(cv_pred, index=X_train.index),
-            pd.Series(y_pred, index=X_test.index)], axis=0)
+        # preds[f"rep_{j}"] = pd.concat([pd.Series(cv_pred, index=X_train.index),
+        #     pd.Series(y_pred, index=X_test.index)], axis=0)
 
         if plot=="t":
             # Plot linear regression of actual and predicted test values
@@ -218,7 +251,7 @@ def xgb_reg(trait, fold, n, prefix, plot):
             
             # Plot feature importances
             xgb.plot_importance(
-                best_model, grid=False, max_num_features=20, 
+                best_model, grid=False, max_num_features=20,
                 title=f"{trait} Feature Importances", xlabel="Weight")
             plt.tight_layout()
             plt.savefig(f"{args.save}/{prefix}_top20_rep_{j}.pdf", format="pdf")
@@ -228,7 +261,8 @@ def xgb_reg(trait, fold, n, prefix, plot):
     feature_imp.to_csv(f"{args.save}/{prefix}_imp.csv")
     
     # Write predictions across reps to file
-    pd.DataFrame.from_dict(preds).to_csv(f"{args.save}/{prefix}_preds.csv")
+    # pd.DataFrame.from_dict(preds).to_csv(f"{args.save}/{prefix}_preds.csv")
+    Y_preds.to_csv(f"{args.save}/{prefix}_cv_preds.csv")
     
     return (results_cv, results_test)
 
@@ -304,7 +338,7 @@ if __name__ == "__main__":
     # Train the model
     start = time.time()
     results_cv, results_test = xgb_reg(
-        args.y_name, int(args.fold), int(args.n), args.prefix, args.plot)
+        args.y_name, X, y, int(args.fold), int(args.n), args.prefix, args.plot)
     run_time = time.time() - start
     print("Training Run Time: %f" % (run_time))
 
@@ -318,26 +352,26 @@ if __name__ == "__main__":
 
     # Aggregate results and save to file
     if not os.path.isfile(f"{args.save}/RESULTS_xgboost.txt"):
-        out = open(f"{args.save}/RESULTS_xgboost.txt", "a")
-        out.write("Date\tRunTime\tTag\tY\tNumInstances\tNumFeatures\
-            \tCV_fold\tCV_rep\tMSE_val\tMSE_val_sd\
-            \tRMSE_val\tRMSE_val_sd\tEVS_val\tEVS_val_sd\tR2_val\
-            \tR2_val_sd\tPCC_val\tPCC_val_sd\tMSE_test\tMSE_test_sd\
-            \tRMSE_test\tRMSE_test_sd\tEVS_test\tEVS_test_sd\tR2_test\
-            \tR2_test_sd\tPCC_test\tPCC_test_sd")
+        out = open(f"{args.save}/RESULTS_xgboost.tsv", "a")
+        out.write("Date\tRunTime\tTag\tY\tNumInstances\tNumFeatures")
+        out.write("\tCV_fold\tCV_rep\tMSE_val\tMSE_val_sd")
+        out.write("\tRMSE_val\tRMSE_val_sd\tEVS_val\tEVS_val_sd\tR2_val")
+        out.write("\tR2_val_sd\tPCC_val\tPCC_val_sd\tMSE_test\tMSE_test_sd")
+        out.write("\tRMSE_test\tRMSE_test_sd\tEVS_test\tEVS_test_sd\tR2_test")
+        out.write("\tR2_test_sd\tPCC_test\tPCC_test_sd")
         out.close()
 
-    out = open(f"{args.save}/RESULTS_xgboost.txt", "a")
-    out.write(f"\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\t\
-        {run_time}\t{args.tag}\t{args.y_name}\t{X.shape[0]-len(test)}\t\
-        {X.shape[1]}\t{int(args.fold)}\t{int(args.n)}\t\
-        {np.mean(results_cv.MSE_val)}\t{np.std(results_cv.MSE_val)}\t\
-        {np.mean(results_cv.RMSE_val)}\t{np.std(results_cv.RMSE_val)}\t\
-        {np.mean(results_cv.EVS_val)}\t{np.std(results_cv.EVS_val)}\t\
-        {np.mean(results_cv.R2_val)}\t{np.std(results_cv.R2_val)}\t\
-        {np.mean(results_cv.PCC_val)}\t{np.std(results_cv.PCC_val)}\t\
-        {np.mean(results_test.MSE_test)}\t{np.std(results_test.MSE_test)}\t\
-        {np.mean(results_test.RMSE_test)}\t{np.std(results_test.RMSE_test)}\t\
-        {np.mean(results_test.EVS_test)}\t{np.std(results_test.EVS_test)}\t\
-        {np.mean(results_test.R2_test)}\t{np.std(results_test.R2_test)}\t\
-        {np.mean(results_test.PCC_test)}\t{np.std(results_test.PCC_test)}")
+    out = open(f"{args.save}/RESULTS_xgboost.tsv", "a")
+    out.write(f"\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\t")
+    out.write(f"{run_time}\t{args.tag}\t{args.y_name}\t{X.shape[0]-len(test)}\t")
+    out.write(f"{X.shape[1]}\t{int(args.fold)}\t{int(args.n)}\t")
+    out.write(f"{np.mean(results_cv.MSE_val)}\t{np.std(results_cv.MSE_val)}\t")
+    out.write(f"{np.mean(results_cv.RMSE_val)}\t{np.std(results_cv.RMSE_val)}\t")
+    out.write(f"{np.mean(results_cv.EVS_val)}\t{np.std(results_cv.EVS_val)}\t")
+    out.write(f"{np.mean(results_cv.R2_val)}\t{np.std(results_cv.R2_val)}\t")
+    out.write(f"{np.mean(results_cv.PCC_val)}\t{np.std(results_cv.PCC_val)}\t")
+    out.write(f"{np.mean(results_test.MSE_test)}\t{np.std(results_test.MSE_test)}\t")
+    out.write(f"{np.mean(results_test.RMSE_test)}\t{np.std(results_test.RMSE_test)}\t")
+    out.write(f"{np.mean(results_test.EVS_test)}\t{np.std(results_test.EVS_test)}\t")
+    out.write(f"{np.mean(results_test.R2_test)}\t{np.std(results_test.R2_test)}\t")
+    out.write(f"{np.mean(results_test.PCC_test)}\t{np.std(results_test.PCC_test)}")
